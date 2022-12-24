@@ -7,18 +7,43 @@ from collections import OrderedDict
 from people_also_ask.google import get_related_questions
 from people_also_ask.exceptions import (
     InvalidQuestionInputFileError,
-    FailedToWriteOuputFileError,
 )
+from typing import Dict
+import csv
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--input-file", "-i", help="input file which is a txt file containing list of questions", required=True)
-    parser.add_argument("--output-file", "-o", help="output file which is .json file containing a dictionnary of question: answer", required=True)
+    parser.add_argument(
+        "--input-file",
+        "-i",
+        help="input file which is a txt file containing list of questions",
+        required=True,
+    )
+    parser.add_argument(
+        "--num-questions",
+        "-n",
+        help="number of related questions to scrape",
+        required=True,
+        default=4,
+    )
 
     return parser.parse_args()
 
-def read_questions(input_file):
+
+def read_questions(input_file: str):
+    """Reads seed questions from a file and returns a list of questions
+
+    Args:
+        input_file (_type_): _description_
+
+    Raises:
+        InvalidQuestionInputFileError: _description_
+
+    Returns:
+        _type_: _description_
+    """
     try:
         with open(input_file, "r") as fd:
             text = fd.read()
@@ -27,17 +52,25 @@ def read_questions(input_file):
         message = traceback.format_exc()
         raise InvalidQuestionInputFileError(input_file, message)
 
-def write_question_answers(output_file, data):
-    try:
-        with open(output_file, "w") as fd:
-            fd.write(json.dumps(data))
-    except Exception:
-        message = traceback.format_exc()
-        raise FailedToWriteOuputFileError(output_file, message)
 
-def collect_data(input_file, output_file):
+def write_related_questions(data: Dict[str, Dict[str, str]]):
+    """Writes the data to a json file
+
+    Args:
+        output_file (_type_): _description_
+        data (_type_): _description_
+
+    """
+    for seed_question, related_questions in data.items():
+        with open(f"{seed_question}.csv", "w", newline="") as fd:
+            writer = csv.writer(fd)
+            for question, link in related_questions.items():
+                writer.writerow([question, link])
+
+
+def collect_data(input_file: str, num_questions: int):
     questions = read_questions(input_file)
-    data = {}
+    data: Dict[str, Dict[str, str]] = {}
 
     counter = 0
 
@@ -45,15 +78,17 @@ def collect_data(input_file, output_file):
     for question in questions:
         counter += 1
         print(f"COLLECTING {counter}/{len(questions)}")
-        data[question] = get_related_questions(question, 100)
-    collect_time = (time.time() - start_time) / 60  #  minutes
+        data[question] = get_related_questions(question, num_questions)
+    collect_time = time.time() - start_time  #  minutes
 
-    print(f"Collected answers for {len(questions)} questions in {collect_time} minutes")
-    write_question_answers(output_file, data)
+    print(f"Collected answers for {len(questions)} questions in {collect_time} seconds")
+    write_related_questions(data)
+
 
 def main():
     args = parse_args()
-    collect_data(args.input_file, args.output_file)
+    collect_data(args.input_file, int(args.num_questions))
+
 
 if __name__ == "__main__":
     main()
