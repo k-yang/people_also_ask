@@ -2,6 +2,7 @@
 import sys
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any, Optional, Generator
+import time
 
 from people_also_ask.parser import (
     extract_related_questions,
@@ -17,6 +18,7 @@ URL = "https://www.google.com/search"
 
 def search(keyword: str) -> Optional[BeautifulSoup]:
     """return html parser of google search result"""
+    time.sleep(1)
     params = {"q": keyword, "gl": "us"}
     response = get(URL, params=params)
     return BeautifulSoup(response.text, "html.parser")
@@ -38,40 +40,43 @@ def _get_related_questions(text: str) -> List[str]:
         raise RelatedQuestionParserError(text)
 
 
-def generate_related_questions(text: str) -> Generator[str, None, None]:
+def generate_related_questions(questions: str) -> Generator[List[str], None, None]:
     """
     generate the questions related to text,
     these questions are found recursively
 
     :param str text: text to search
     """
-    questions = set(_get_related_questions(text))
-    searched_text = set(text)
+    searched_questions = set(questions)
+    questions = set(_get_related_questions(questions))
     while questions:
-        text = questions.pop()
-        yield text
-        searched_text.add(text)
-        questions |= set(_get_related_questions(text))
-        questions -= searched_text
+        questions = questions.pop()
+        yield questions
+        searched_questions.add(questions)
+        questions |= set(_get_related_questions(questions))
+        questions -= searched_questions
 
 
-def get_related_questions(text: str, max_nb_questions: Optional[int] = None):
+def get_related_questions(seed_question: str, max_related_questions: Optional[int] = None):
     """
     return a number of questions related to text.
     These questions are found recursively.
 
     :param str text: text to search
     """
-    if max_nb_questions is None:
-        return _get_related_questions(text)
-    nb_question_regenerated = 0
-    questions = set()
-    for question in generate_related_questions(text):
-        if nb_question_regenerated > max_nb_questions:
-            break
-        questions.add(question)
-        nb_question_regenerated += 1
-    return list(questions)
+    if max_related_questions is None:
+        return _get_related_questions(seed_question)
+
+    questions = set(_get_related_questions(seed_question))
+    related_questions = set(questions)
+
+    while len(related_questions) < max_related_questions:
+        next_question = questions.pop()
+        print(next_question)
+        questions |= set(_get_related_questions(next_question))
+        related_questions |= questions
+        print(len(related_questions))
+    return list(related_questions)
 
 
 def get_answer(question: str) -> Dict[str, Any]:
