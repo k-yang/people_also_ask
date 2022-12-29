@@ -2,6 +2,9 @@
 import sys
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any, Optional, Generator
+import time
+import requests
+import random
 
 from people_also_ask.parser import (
     extract_related_questions,
@@ -9,71 +12,100 @@ from people_also_ask.parser import (
 )
 from people_also_ask.exceptions import (
     RelatedQuestionParserError,
-    FeaturedSnippetParserError
+    FeaturedSnippetParserError,
 )
 from people_also_ask.request import get
-
 
 URL = "https://www.google.com/search"
 
 
 def search(keyword: str) -> Optional[BeautifulSoup]:
     """return html parser of google search result"""
-    params = {"q": keyword, "gl": "us"}
-    response = get(URL, params=params)
-    return BeautifulSoup(response.text, "html.parser")
+    time.sleep(1)
+    params = {
+        "q": keyword,
+        "oq": keyword,
+        # "gl": "us",
+        "aqs": "chrome.0.35i39j46i131i433i512j69i57j0i512l7.2306j0j7",
+        "sourceid": "chrome",
+        "ie": "UTF-8",
+    }
+    headers = {
+        # "accept-language": "en-US,en;q=0.9",
+        # "accept-encoding": "gzip, deflate, br",
+        # "cache-control": "max-age=0",
+        # "sec-fetch-dest": "document",
+        # "sec-fetch-mode": "navigate",
+        # "sec-fetch-site": "same-origin",
+        # "sec-fetch-user": "?1",
+        # "upgrade-insecure-requests": "1",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36",
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+    }
+    r = requests.Session().get(
+        URL,
+        params=params,
+        headers=headers,
+    )
+
+    document = BeautifulSoup(r.text, "html.parser")
+
+    return document
 
 
-def _get_related_questions(text: str) -> List[str]:
-    """
-    return a list of questions related to text.
-    These questions are from search result of text
+def _get_related_questions(text: str) -> Dict[str, str]:
+    """Gets related questions from google search result
 
-    :param str text: text to search
+    Args:
+        text (str): _description_
+
+    Returns:
+        Dict[str, str]: _description_
     """
     document = search(text)
-    if not document:
-        return []
-    try:
-        return extract_related_questions(document)
-    except Exception:
-        raise RelatedQuestionParserError(text)
+    return extract_related_questions(document)
 
 
-def generate_related_questions(text: str) -> Generator[str, None, None]:
+def generate_related_questions(questions: str) -> Generator[List[str], None, None]:
     """
     generate the questions related to text,
-    these quetions are found recursively
+    these questions are found recursively
 
     :param str text: text to search
     """
-    questions = set(_get_related_questions(text))
-    searched_text = set(text)
+    searched_questions = set(questions)
+    questions = set(_get_related_questions(questions))
     while questions:
-        text = questions.pop()
-        yield text
-        searched_text.add(text)
-        questions |= set(_get_related_questions(text))
-        questions -= searched_text
+        questions = questions.pop()
+        yield questions
+        searched_questions.add(questions)
+        questions |= set(_get_related_questions(questions))
+        questions -= searched_questions
 
 
-def get_related_questions(text: str, max_nb_questions: Optional[int] = None):
+def get_related_questions(
+    seed_question: str, max_related_questions: int = 4
+) -> Dict[str, str]:
+    """Returns related questions to the seed question
+
+    Args:
+        seed_question (str): _description_
+        max_related_questions (int, optional): _description_. Defaults to 4.
+
+    Returns:
+        Dict[str, str]: _description_
     """
-    return a number of questions related to text.
-    These questions are found recursively.
 
-    :param str text: text to search
-    """
-    if max_nb_questions is None:
-        return _get_related_questions(text)
-    nb_question_regenerated = 0
-    questions = set()
-    for question in generate_related_questions(text):
-        if nb_question_regenerated > max_nb_questions:
-            break
-        questions.add(question)
-        nb_question_regenerated += 1
-    return list(questions)
+    print("asking question: ", seed_question)
+    related_questions = _get_related_questions(seed_question)
+    while len(related_questions.keys()) < max_related_questions:
+        print(len(related_questions))
+        next_question = random.choice(list(related_questions.keys()))
+        print("asking question: ", next_question)
+        new_related_questions = _get_related_questions(next_question)
+        related_questions = {**related_questions, **new_related_questions}
+
+    return related_questions
 
 
 def get_answer(question: str) -> Dict[str, Any]:
@@ -84,8 +116,7 @@ def get_answer(question: str) -> Dict[str, Any]:
     """
     document = search(question)
     related_questions = extract_related_questions(document)
-    featured_snippet = get_featured_snippet_parser(
-            question, document)
+    featured_snippet = get_featured_snippet_parser(question, document)
     if not featured_snippet:
         res = dict(
             has_answer=False,
@@ -130,13 +161,12 @@ def get_simple_answer(question: str, depth: bool = False) -> str:
     """
     return a text as summary answer for the question
 
-    :param str question: asked quetion
+    :param str question: asked question
     :param bool depth: return the answer of first related question
         if no answer found for question
     """
     document = search(question)
-    featured_snippet = get_featured_snippet_parser(
-            question, document)
+    featured_snippet = get_featured_snippet_parser(question, document)
     if featured_snippet:
         return featured_snippet.response
     if depth:
@@ -149,4 +179,5 @@ def get_simple_answer(question: str, depth: bool = False) -> str:
 
 if __name__ == "__main__":
     from pprint import pprint as print
+
     print(get_answer(sys.argv[1]))

@@ -7,7 +7,7 @@ NB_QUESTION = 10
 
 
 def generate_article(title: str):
-    questions = paa.get_related_questions(title, max_nb_questions=NB_QUESTION)
+    questions = paa.get_related_questions(title, max_related_questions=NB_QUESTION)
 
     introduction = paa.get_simple_answer(title)
 

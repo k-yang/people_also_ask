@@ -2,40 +2,59 @@
 from bs4.element import Tag
 from bs4 import BeautifulSoup
 from operator import attrgetter
-from typing import List, Optional
+from typing import List, Optional, Dict
 from people_also_ask.tools import itemize, tabulate, remove_redundant
-
+import re
 
 FEATURED_SNIPPET_ATTRIBUTES = [
-    "response", "heading", "title", "link", "displayed_link",
-    "snippet_str", "snippet_data", "date", "snippet_data",
-    "snippet_type", "snippet_str_body", "raw_text"
+    "response",
+    "heading",
+    "title",
+    "link",
+    "displayed_link",
+    "snippet_str",
+    "snippet_data",
+    "date",
+    "snippet_data",
+    "snippet_type",
+    "snippet_str_body",
+    "raw_text",
 ]
 
 
-def extract_related_questions(document: BeautifulSoup) -> List[str]:
-    div_questions = document.find_all("div", class_="related-question-pair")
-    get_text = lambda a: a.text.split('Search for:')[0]
-    if not div_questions:
-        return []
-    questions = list(map(get_text, div_questions))
-    return questions
+def extract_related_questions(document: BeautifulSoup) -> Dict[str, str]:
+
+    related_questions = list(
+        map(
+            lambda a: a.text.split("Search for:")[0],
+            document.find_all("div", class_="related-question-pair"),
+        )
+    )
+
+    # Get the links from the scripts
+    related_links = list()
+    scripts = document.find_all("script", nonce=True)
+    for script in scripts:
+        links = re.findall(r"href\\x3d\\x22(.*?)\\x22", script.text)
+        if links:
+            for link in links:
+                if not link.startswith("http") or "google" in link:
+                    continue
+                related_links.append(link)
+
+    assert len(related_links) >= len(related_questions)
+    return dict(zip(related_questions, related_links[: len(related_questions)]))
 
 
 def is_ol_but_not_a_menu(tag):
-    return (
-        tag.name == "ol"
-        and (
-            not tag.has_attr("role")
-            or (tag.has_attr("role") and tag["role"] != "menu")
-            )
-        )
+    return tag.name == "ol" and (
+        not tag.has_attr("role") or (tag.has_attr("role") and tag["role"] != "menu")
+    )
 
 
 def get_tag_heading(tag):
-    return (
-        tag.find("div", {"role": "heading", "aria-level": "3"})
-        or tag.find("div", {"role": "heading"})
+    return tag.find("div", {"role": "heading", "aria-level": "3"}) or tag.find(
+        "div", {"role": "heading"}
     )
 
 
@@ -51,15 +70,10 @@ def get_raw_text(tag):
 
 
 def get_span_text(tag):
-    return "\n".join(
-            remove_redundant(
-                [e.text for e in tag.findAll("span") if e.text]
-                )
-            )
+    return "\n".join(remove_redundant([e.text for e in tag.findAll("span") if e.text]))
 
 
 class FeaturedSnippetParser(object):
-
     def __init__(self, text: str, tag: Tag):
         self.text = text
         self.tag = tag
@@ -67,20 +81,17 @@ class FeaturedSnippetParser(object):
     def __getattr__(self, attr):
         if attr in FEATURED_SNIPPET_ATTRIBUTES:
             return None
-        raise AttributeError(f'{self.__class__.__name__}.{attr} is invalid.')
+        raise AttributeError(f"{self.__class__.__name__}.{attr} is invalid.")
 
     @property
     def raw_text(self):
         return get_raw_text(self.tag)
 
     def to_dict(self):
-        return {
-            attr: getattr(self, attr) for attr in FEATURED_SNIPPET_ATTRIBUTES
-        }
+        return {attr: getattr(self, attr) for attr in FEATURED_SNIPPET_ATTRIBUTES}
 
 
 class SimpleFeaturedSnippetParser(FeaturedSnippetParser):
-
     @classmethod
     def get_instance(self, text, tag):
         if tag.table is not None:
@@ -131,10 +142,7 @@ class SimpleFeaturedSnippetParser(FeaturedSnippetParser):
     @property
     def snippet_str(self):
         lines = []
-        for field in (
-            "heading", "snippet_str_body",
-            "displayed_link", "link", "title"
-        ):
+        for field in ("heading", "snippet_str_body", "displayed_link", "link", "title"):
             if getattr(self, field):
                 lines.append(getattr(self, field))
         return "\n".join(lines)
@@ -178,9 +186,7 @@ class TableFeaturedSnippetParser(SimpleFeaturedSnippetParser):
         table_tag = self.tag.find("table")
         tr_tags = table_tag.findAll("tr")
         if tr_tags[0].find("th"):
-            columns = [
-                th_tag.text for th_tag in tr_tags[0].findAll("th")
-            ]
+            columns = [th_tag.text for th_tag in tr_tags[0].findAll("th")]
             body_table_tags = tr_tags[1:]
         else:
             columns = None
@@ -191,10 +197,7 @@ class TableFeaturedSnippetParser(SimpleFeaturedSnippetParser):
         ]
         if columns is None:
             columns = list(range(len(values[0])))
-        return {
-            "columns": columns,
-            "values": values
-        }
+        return {"columns": columns, "values": values}
 
 
 class OrderedFeaturedSnippetParser(SimpleFeaturedSnippetParser):
@@ -220,7 +223,7 @@ class OrderedFeaturedSnippetParser(SimpleFeaturedSnippetParser):
 
 
 class UnorderedFeaturedSnippetParser(SimpleFeaturedSnippetParser):
-    """ What are 3 basic programming languages? """
+    """What are 3 basic programming languages?"""
 
     @property
     def snippet_type(self):
@@ -274,9 +277,8 @@ class MultipleCardsFeaturedSnippetTag(FeaturedSnippetParser):
 
     @property
     def heading(self):
-        tag_heading = (
-            self.tag.find("h3", {"role": "heading"})
-            or self.tag.find("h2", {"role": "heading"})
+        tag_heading = self.tag.find("h3", {"role": "heading"}) or self.tag.find(
+            "h2", {"role": "heading"}
         )
         return tag_heading.text
 
@@ -383,7 +385,7 @@ class WholePageTabContainer(FeaturedSnippetParser):
 
 def is_simple_featured_snippet_tag(tag):
     class_tuple = tuple(tag.get("class", ""))
-    is_xpdopen = (tag.name == "div" and class_tuple == ("xpdopen",))
+    is_xpdopen = tag.name == "div" and class_tuple == ("xpdopen",)
     if not is_xpdopen:
         return False
     is_xpdopen_of_related_questions = (
@@ -393,9 +395,7 @@ def is_simple_featured_snippet_tag(tag):
 
 
 def is_single_card_featured_snippet_tag(tag):
-    is_card_section = (
-        tag.name == "div" and "card-section" in tag.get("class", [])
-    )
+    is_card_section = tag.name == "div" and "card-section" in tag.get("class", [])
     if not is_card_section:
         return False
     is_card_section_of_tip = tag.text.startswith("Tip:")
@@ -403,19 +403,18 @@ def is_single_card_featured_snippet_tag(tag):
 
 
 def is_multiple_card_snippet_tag(tag):
-    return (tag.name == "g-section-with-header")
+    return tag.name == "g-section-with-header"
 
 
 def is_whole_page_tabs_container(tag):
-    return (tag.get("id") == "wp-tabs-container")
+    return tag.get("id") == "wp-tabs-container"
 
 
 def is_web_results(tag):
-    return (tag.name == "h2" and tag.text == "Web results")
+    return tag.name == "h2" and tag.text == "Web results"
 
 
 def get_featured_snippet_tag(document):
-
     def lookup_featured_snippet_tag(tag):
         return (
             is_simple_featured_snippet_tag(tag)
@@ -423,6 +422,7 @@ def get_featured_snippet_tag(document):
             or is_multiple_card_snippet_tag(tag)
             or is_web_results(tag)
         )
+
     whole_page_tag = document.find(is_whole_page_tabs_container)
     tag = document.find(lookup_featured_snippet_tag)
     if tag and is_simple_featured_snippet_tag(tag):
