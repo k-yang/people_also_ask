@@ -20,6 +20,7 @@ def parse_args():
         "-i",
         help="input file which is a txt file containing list of questions",
         required=True,
+        default="questions.txt",
     )
     parser.add_argument(
         "--num-questions",
