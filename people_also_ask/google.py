@@ -99,9 +99,9 @@ def get_related_questions(
     print("asking question: ", seed_question)
     related_questions = _get_related_questions(seed_question)
     while len(related_questions.keys()) < max_related_questions:
-        print(len(related_questions))
+        print("obtained ", len(related_questions), " related questions.")
         next_question = random.choice(list(related_questions.keys()))
-        print("asking question: ", next_question)
+        print("Now are are asking: ", next_question)
         new_related_questions = _get_related_questions(next_question)
         related_questions = {**related_questions, **new_related_questions}
 
